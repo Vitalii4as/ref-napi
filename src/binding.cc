@@ -19,10 +19,19 @@
   #include <inttypes.h>
 #endif
 
-
 using namespace Napi;
 
 namespace {
+
+template <typename Finalizer>
+Napi::Buffer<char> NewOrCopyBuffer(Napi::Env env, char* data, size_t len, Finalizer  finalizeCallback) {
+  try {
+    return Napi::Buffer<char>::New(env, data, len, finalizeCallback);
+  } catch (Napi::Error const &err) {}
+  Napi::Buffer<char> buf = Napi::Buffer<char>::Copy(env, data, len);
+  finalizeCallback(nullptr, data);
+  return buf;
+}
 
 #if !defined(NAPI_VERSION) || NAPI_VERSION < 6
 napi_status napix_set_instance_data(
@@ -142,7 +151,7 @@ class InstanceData final : public RefNapi::Instance {
 
     if (ab.IsEmpty()) {
       length = std::max<size_t>(length, kMaxLength);
-      ab = Buffer<char>::New(env, ptr, length, [this](Env env, char* ptr) {
+      ab = NewOrCopyBuffer(env, ptr, length, [this](Env env, char* ptr) {
         UnregisterArrayBuffer(ptr);
       }).ArrayBuffer();
       RegisterArrayBuffer(ab, AB_CREATED_BY_REF);
@@ -178,7 +187,7 @@ Value WrapPointer(Env env, char* ptr, size_t length) {
     });
   }
 
-  return Buffer<char>::New(env, ptr, length, [](Env,char*){});
+  return NewOrCopyBuffer(env, ptr, length, [](Env,char*){});
 }
 
 char* GetBufferData(Value val) {
